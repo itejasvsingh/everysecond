@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 610">
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#e8d8c3"/>
+      <stop offset="1" stop-color="#c1b09a"/>
+    </linearGradient>
+    <linearGradient id="jar" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#83958a"/>
+      <stop offset="1" stop-color="#526a61"/>
+    </linearGradient>
+  </defs>
+  <rect width="760" height="610" fill="url(#wall)"/>
+  <path d="M80 0h248v610H80z" fill="#f2e7d4" opacity=".5"/>
+  <path d="M328 0h14v610h-14z" fill="#a99b88" opacity=".34"/>
+  <path d="M0 471c149-19 301 8 421-2s225-27 339-8v149H0Z" fill="#ad9a81"/>
+  <ellipse cx="432" cy="478" rx="119" ry="15" fill="#66574c" opacity=".19"/>
+  <path d="M359 362h143l-14 120c-4 35-107 35-112 0Z" fill="url(#jar)"/>
+  <path d="M354 359h153v18H354z" fill="#718477"/>
+  <g fill="none" stroke="#536f53" stroke-linecap="round" stroke-width="7">
+    <path d="M408 362c-12-102-60-122-73-194"/><path d="M428 361c7-100 11-147 47-225"/>
+    <path d="M444 361c42-82 81-107 112-132"/><path d="M391 361c-54-62-107-79-139-95"/>
+    <path d="M417 365c-2-79 4-120-12-184"/>
+  </g>
+  <g fill="#e1a45e">
+    <circle cx="332" cy="151" r="21"/><circle cx="475" cy="124" r="24"/>
+  </g>
+  <g fill="#f5eee0">
+    <circle cx="559" cy="218" r="24"/><circle cx="266" cy="262" r="22"/><circle cx="405" cy="177" r="19"/>
+  </g>
+  <g fill="#d98570">
+    <circle cx="559" cy="218" r="8"/><circle cx="266" cy="262" r="8"/><circle cx="405" cy="177" r="7"/>
+  </g>
+  <g fill="#f1d17d">
+    <circle cx="332" cy="151" r="7"/><circle cx="475" cy="124" r="8"/>
+  </g>
+  <path d="M142 90h118M142 106h75" stroke="#fff9ee" stroke-linecap="round" stroke-width="4" opacity=".5"/>
+</svg>
