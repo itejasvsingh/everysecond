@@ -1,5 +1,6 @@
 const STORAGE_KEY = "daymark-moments-v1";
 const THEME_KEY = "daymark-theme-v1";
+const USER_STORAGE_PREFIX = `${STORAGE_KEY}-user-`;
 const today = startOfDay(new Date());
 const todayKey = toDateKey(today);
 const samples = [
@@ -43,15 +44,45 @@ const els = {
   previewDialog: document.querySelector("#previewDialog"),
   previewContent: document.querySelector("#previewContent"),
   liveMessage: document.querySelector("#liveMessage"),
+  authButton: document.querySelector("#authButton"),
+  authButtonLabel: document.querySelector("#authButtonLabel"),
+  authDialog: document.querySelector("#authDialog"),
+  authForm: document.querySelector("#authForm"),
+  authTitle: document.querySelector("#authTitle"),
+  authIntro: document.querySelector("#authIntro"),
+  authFields: document.querySelector("#authFields"),
+  authEmail: document.querySelector("#authEmail"),
+  authPassword: document.querySelector("#authPassword"),
+  authError: document.querySelector("#authError"),
+  authStatusMessage: document.querySelector("#authStatusMessage"),
+  accountActions: document.querySelector("#accountActions"),
+  signedInActions: document.querySelector("#signedInActions"),
+  signedInEmail: document.querySelector("#signedInEmail"),
+  authSubmitActions: document.querySelector("#authSubmitActions"),
+  authSubmit: document.querySelector("#authSubmit"),
+  toggleAuthMode: document.querySelector("#toggleAuthMode"),
+  importNotice: document.querySelector("#importNotice"),
+  importDescription: document.querySelector("#importDescription"),
+  importLocalButton: document.querySelector("#importLocalButton"),
 };
 
 let memories = readMemories();
+let activeStorageKey = STORAGE_KEY;
 let selectedDate = todayKey;
 let visibleMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 let photoPreviewUrl = "";
+let firebaseAuth = null;
+let firestore = null;
+let cloudStorage = null;
+let currentUser = null;
+let authMode = "signin";
+let firebaseReady = false;
+let firebaseLoading = false;
+const photoObjectUrls = new Set();
 
 initializeTheme();
 render();
+registerServiceWorker();
 
 document.querySelectorAll("[data-view]").forEach((button) => {
   button.addEventListener("click", () => showView(button.dataset.view));
@@ -69,9 +100,17 @@ document.querySelector("#cancelCapture").addEventListener("click", closeCapture)
 document.querySelector("#closePreview").addEventListener("click", () => els.previewDialog.close());
 document.querySelector("#themeToggle").addEventListener("click", toggleTheme);
 document.querySelector("#topThemeToggle").addEventListener("click", toggleTheme);
+els.authButton.addEventListener("click", openAuthDialog);
+document.querySelector("#closeAuth").addEventListener("click", closeAuthDialog);
+document.querySelector("#cancelAuth").addEventListener("click", closeAuthDialog);
+document.querySelector("#toggleAuthMode").addEventListener("click", toggleAuthMode);
+document.querySelector("#resetPassword").addEventListener("click", resetPassword);
+document.querySelector("#signOutButton").addEventListener("click", signOut);
+document.querySelector("#importLocalButton").addEventListener("click", importLocalMemories);
 els.searchInput.addEventListener("input", renderTimeline);
 els.memoryPhoto.addEventListener("change", previewSelectedPhoto);
 els.captureForm.addEventListener("submit", saveMemory);
+els.authForm.addEventListener("submit", submitAuthForm);
 
 els.captureDialog.addEventListener("click", (event) => {
   if (event.target === els.captureDialog) closeCapture();
@@ -81,6 +120,10 @@ els.previewDialog.addEventListener("click", (event) => {
   if (event.target === els.previewDialog) els.previewDialog.close();
 });
 
+els.authDialog.addEventListener("click", (event) => {
+  if (event.target === els.authDialog) closeAuthDialog();
+});
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && !els.timelineView.hidden && !isTypingTarget(event.target)) {
     event.preventDefault();
@@ -88,6 +131,12 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && els.captureDialog.open) closeCapture();
 });
+
+window.addEventListener("online", () => {
+  if (currentUser) syncPendingMemories().catch(reportCloudError);
+});
+
+initializeFirebase();
 
 function render() {
   document.querySelector("#topbarDate").textContent = new Intl.DateTimeFormat(undefined, {
@@ -100,6 +149,427 @@ function render() {
   renderCalendar();
   renderSummary();
   renderTimeline();
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator) || location.protocol === "file:") return;
+  navigator.serviceWorker.register("./service-worker.js", { scope: "./" }).catch((error) => {
+    console.error("Could not register the offline app shell.", error);
+  });
+}
+
+async function initializeFirebase() {
+  if (!window.daymarkFirebaseConfig) {
+    updateAuthUI();
+    return;
+  }
+  firebaseLoading = true;
+  updateAuthUI();
+  try {
+    await loadFirebaseSdk();
+    const app = window.firebase.apps.length
+      ? window.firebase.app()
+      : window.firebase.initializeApp(window.daymarkFirebaseConfig);
+    firebaseAuth = app.auth();
+    firestore = app.firestore();
+    cloudStorage = app.storage();
+    firebaseReady = true;
+    firebaseAuth.onAuthStateChanged(
+      (user) => {
+        handleAuthStateChanged(user).catch(reportCloudError);
+      },
+      (error) => {
+        console.error("Could not read the Firebase sign-in state.", error);
+        setAuthStatus("We couldn’t check your sign-in. Please refresh and try again.", true);
+      },
+    );
+  } catch (error) {
+    console.error("Could not initialize Firebase.", error);
+    setAuthStatus("Firebase couldn’t start. Check your connection and app configuration.", true);
+  } finally {
+    firebaseLoading = false;
+    updateAuthUI();
+  }
+}
+
+function loadFirebaseSdk() {
+  const sdkFiles = [
+    "firebase-app-compat.js",
+    "firebase-auth-compat.js",
+    "firebase-firestore-compat.js",
+    "firebase-storage-compat.js",
+  ];
+  const loadScripts = async () => {
+    for (const file of sdkFiles) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = `https://www.gstatic.com/firebasejs/11.6.1/${file}`;
+        script.async = true;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error(`Could not load ${file}.`));
+        document.head.append(script);
+      });
+    }
+  };
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = window.setTimeout(
+      () => reject(new Error("Firebase SDK loading timed out.")),
+      8000,
+    );
+  });
+  return Promise.race([loadScripts(), timeout]).finally(() => window.clearTimeout(timeoutId));
+}
+
+async function handleAuthStateChanged(user) {
+  clearPhotoObjectUrls();
+  currentUser = user;
+  activeStorageKey = user ? userStorageKey(user.uid) : STORAGE_KEY;
+  memories = readMemories(activeStorageKey);
+  render();
+  updateAuthUI();
+
+  if (!user) return;
+  try {
+    const cloudMemories = await loadCloudMemories(user);
+    const pending = memories.filter((moment) => moment.pendingSync);
+    memories = mergeMemories(memories, cloudMemories, pending);
+    persistMemories();
+    render();
+    await hydrateCloudPhotos();
+    if (pending.length && navigator.onLine) {
+      await syncPendingMemories();
+    } else if (pending.length) {
+      setAuthStatus(`${pending.length} ${pending.length === 1 ? "moment is" : "moments are"} waiting to sync.`, false);
+    } else {
+      setAuthStatus(`${memories.length} ${memories.length === 1 ? "moment" : "moments"} synced to your account.`, false);
+    }
+    updateAuthUI();
+  } catch (error) {
+    console.error("Could not sync this account’s moments.", error);
+    setAuthStatus(
+      "You’re signed in, but cloud moments could not load. Check that Firestore, Storage, and their rules are set up.",
+      true,
+    );
+  }
+}
+
+async function loadCloudMemories(user) {
+  const snapshot = await firestore
+    .collection("users")
+    .doc(user.uid)
+    .collection("moments")
+    .orderBy("date", "desc")
+    .get();
+  return snapshot.docs.map((document) => {
+    const data = document.data();
+    const photoPath = typeof data.photoPath === "string" ? data.photoPath : "";
+    if (photoPath && photoPath !== `users/${user.uid}/moments/${document.id}.jpg`) {
+      throw new Error("A cloud moment points to a photo outside its account.");
+    }
+    return {
+      id: document.id,
+      date: data.date,
+      caption: data.caption,
+      photo: "",
+      photoPath,
+      createdAt: data.createdAt?.toDate?.().toISOString() || new Date().toISOString(),
+    };
+  }).filter(isValidMemory);
+}
+
+async function hydrateCloudPhotos() {
+  if (!currentUser || !navigator.onLine) return;
+  const momentsWithPhotos = memories.filter((moment) => moment.photoPath && !moment.photo);
+  const results = await Promise.allSettled(momentsWithPhotos.map(async (moment) => {
+    const blob = await cloudStorage.ref(moment.photoPath).getBlob(5 * 1024 * 1024);
+    const objectUrl = URL.createObjectURL(blob);
+    photoObjectUrls.add(objectUrl);
+    moment.photo = objectUrl;
+  }));
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length) {
+    failures.forEach((result) => console.error("Could not load a private Firebase photo.", result.reason));
+    setAuthStatus("Some photos couldn’t load. Check Storage setup and its cross-origin configuration.", true);
+  }
+  render();
+}
+
+function clearPhotoObjectUrls() {
+  photoObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  photoObjectUrls.clear();
+}
+
+function mergeMemories(...groups) {
+  const merged = new Map();
+  groups.flat().forEach((moment) => {
+    const existing = merged.get(moment.id);
+    merged.set(moment.id, existing ? { ...existing, ...moment, photo: moment.photo || existing.photo } : moment);
+  });
+  return [...merged.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function userStorageKey(uid) {
+  return `${USER_STORAGE_PREFIX}${uid}`;
+}
+
+function persistMemories() {
+  const localMemories = memories.map((moment) => ({
+    ...moment,
+    photo: moment.photo.startsWith("data:image/jpeg;base64,") ? moment.photo : "",
+  }));
+  localStorage.setItem(activeStorageKey, JSON.stringify(localMemories));
+}
+
+function updateAuthUI() {
+  els.authButtonLabel.textContent = currentUser ? "Account" : "Sign in";
+  els.authButton.setAttribute(
+    "aria-label",
+    currentUser ? `Signed in as ${currentUser.email || "your account"}` : "Sign in to sync your moments",
+  );
+  if (els.authDialog.open) updateAuthDialog();
+}
+
+function updateAuthDialog() {
+  const isSignedIn = Boolean(currentUser);
+  const firebaseAvailable = firebaseReady && firebaseAuth;
+  els.authError.hidden = true;
+  els.authFields.hidden = isSignedIn || !firebaseAvailable;
+  els.accountActions.hidden = isSignedIn || !firebaseAvailable;
+  els.signedInActions.hidden = !isSignedIn;
+  els.authSubmitActions.hidden = isSignedIn || !firebaseAvailable;
+  els.importNotice.hidden = !isSignedIn || !hasUnimportedLocalMemories(currentUser.uid);
+
+  if (isSignedIn) {
+    els.authTitle.textContent = "Your account";
+    els.authIntro.textContent = "Signed in. Your cloud moments are private to this account.";
+    els.signedInEmail.textContent = currentUser.email || "Signed in";
+    const localCount = readMemories(STORAGE_KEY).length;
+    els.importDescription.textContent =
+      `This browser has ${localCount} local ${localCount === 1 ? "moment" : "moments"}. Import them to this account?`;
+  } else if (firebaseAvailable) {
+    els.authTitle.textContent = authMode === "signup" ? "Create your account" : "Sign in to sync";
+    els.authIntro.textContent = authMode === "signup"
+      ? "Create a private account for your moments. Use at least 6 characters for your password."
+      : "Sign in to keep your moments private and synced across devices.";
+    els.authSubmit.querySelector("span").textContent =
+      authMode === "signup" ? "Create account" : "Sign in";
+    els.toggleAuthMode.textContent =
+      authMode === "signup" ? "Already have an account? Sign in" : "Create an account";
+    els.authPassword.autocomplete = authMode === "signup" ? "new-password" : "current-password";
+  } else {
+    els.authTitle.textContent = firebaseLoading ? "Connecting to Firebase" : "Sign-in unavailable";
+    els.authIntro.textContent = firebaseLoading
+      ? "Connecting securely. You can keep using moments saved in this browser while we connect."
+      : "Firebase couldn’t load. You can still use moments saved in this browser; cloud sync needs a network connection.";
+  }
+}
+
+function hasUnimportedLocalMemories(uid) {
+  try {
+    return readMemories(STORAGE_KEY).length > 0 &&
+      localStorage.getItem(`${USER_STORAGE_PREFIX}${uid}-imported`) !== "true";
+  } catch (error) {
+    console.error("Could not check the local import state.", error);
+    return false;
+  }
+}
+
+function openAuthDialog() {
+  authMode = "signin";
+  els.authForm.reset();
+  els.authStatusMessage.hidden = true;
+  updateAuthDialog();
+  els.authDialog.showModal();
+  if (!currentUser && firebaseReady) window.requestAnimationFrame(() => els.authEmail.focus());
+}
+
+function closeAuthDialog() {
+  if (els.authDialog.open) els.authDialog.close();
+}
+
+function toggleAuthMode() {
+  authMode = authMode === "signin" ? "signup" : "signin";
+  els.authError.hidden = true;
+  els.authStatusMessage.hidden = true;
+  updateAuthDialog();
+  els.authPassword.value = "";
+  els.authEmail.focus();
+}
+
+async function submitAuthForm(event) {
+  event.preventDefault();
+  if (!firebaseReady || !firebaseAuth) {
+    showAuthError("Firebase is not available. Check your connection and reload.");
+    return;
+  }
+  const email = els.authEmail.value.trim();
+  const password = els.authPassword.value;
+  setAuthBusy(true);
+  els.authError.hidden = true;
+  try {
+    if (authMode === "signup") {
+      await firebaseAuth.createUserWithEmailAndPassword(email, password);
+    } else {
+      await firebaseAuth.signInWithEmailAndPassword(email, password);
+    }
+    closeAuthDialog();
+    announce("You’re signed in. Your cloud moments are loading.");
+  } catch (error) {
+    console.error("Firebase sign-in failed.", error);
+    showAuthError(authErrorMessage(error));
+  } finally {
+    setAuthBusy(false);
+  }
+}
+
+async function resetPassword() {
+  const email = els.authEmail.value.trim();
+  if (!email) {
+    showAuthError("Enter your email address first, then choose Forgot password.");
+    els.authEmail.focus();
+    return;
+  }
+  try {
+    await firebaseAuth.sendPasswordResetEmail(email);
+    setAuthStatus("If an account exists for that address, Firebase will email a password reset link.", false);
+  } catch (error) {
+    console.error("Could not send a password reset email.", error);
+    showAuthError(authErrorMessage(error));
+  }
+}
+
+async function signOut() {
+  try {
+    await firebaseAuth.signOut();
+    closeAuthDialog();
+    announce("Signed out. This browser’s local moments are still here.");
+  } catch (error) {
+    console.error("Could not sign out.", error);
+    setAuthStatus("We couldn’t sign out. Please try again.", true);
+  }
+}
+
+async function importLocalMemories() {
+  if (!currentUser || !navigator.onLine) {
+    setAuthStatus("Connect to the internet before importing local moments.", true);
+    return;
+  }
+  const localMoments = readMemories(STORAGE_KEY);
+  if (!localMoments.length) {
+    setAuthStatus("There are no local moments to import.", false);
+    return;
+  }
+  els.importLocalButton.disabled = true;
+  els.importLocalButton.textContent = "Importing...";
+  try {
+    const imported = [];
+    for (const moment of localMoments) imported.push(await uploadCloudMemory(currentUser, moment));
+    memories = mergeMemories(memories, imported);
+    persistMemories();
+    localStorage.setItem(`${USER_STORAGE_PREFIX}${currentUser.uid}-imported`, "true");
+    render();
+    updateAuthDialog();
+    await hydrateCloudPhotos();
+    setAuthStatus(`${imported.length} local ${imported.length === 1 ? "moment was" : "moments were"} imported.`, false);
+  } catch (error) {
+    console.error("Could not import local moments.", error);
+    setAuthStatus("Some moments could not be imported. You can retry; already imported moments won’t be duplicated.", true);
+  } finally {
+    els.importLocalButton.disabled = false;
+    els.importLocalButton.textContent = "Import these moments";
+  }
+}
+
+async function uploadCloudMemory(user, moment) {
+  let photoPath = moment.photoPath || "";
+  if (moment.photo.startsWith("data:image/jpeg;base64,")) {
+    photoPath = `users/${user.uid}/moments/${moment.id}.jpg`;
+    await cloudStorage.ref(photoPath).putString(moment.photo, "data_url", {
+      contentType: "image/jpeg",
+      cacheControl: "private, max-age=3600",
+    });
+  }
+  const momentRef = firestore
+    .collection("users")
+    .doc(user.uid)
+    .collection("moments")
+    .doc(moment.id);
+  await momentRef.set({
+    date: moment.date,
+    caption: moment.caption,
+    photoPath,
+    createdAt: window.firebase.firestore.Timestamp.fromDate(
+      new Date(moment.createdAt || Date.now()),
+    ),
+    updatedAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+  });
+  return { ...moment, photoPath, pendingSync: false };
+}
+
+async function syncPendingMemories() {
+  if (!currentUser || !navigator.onLine) return;
+  const pending = memories.filter((moment) => moment.pendingSync);
+  if (!pending.length) return;
+  for (const moment of pending) {
+    const synced = await uploadCloudMemory(currentUser, moment);
+    memories = memories.map((item) => item.id === synced.id ? synced : item);
+    persistMemories();
+  }
+  render();
+  updateAuthUI();
+  announce(`${pending.length} ${pending.length === 1 ? "moment was" : "moments were"} synced.`);
+}
+
+function setAuthBusy(busy) {
+  els.authSubmit.disabled = busy;
+  els.authSubmit.querySelector("span").textContent = busy
+    ? "Please wait..."
+    : authMode === "signup" ? "Create account" : "Sign in";
+}
+
+function authErrorMessage(error) {
+  switch (error?.code) {
+    case "auth/invalid-email":
+      return "Enter a valid email address.";
+    case "auth/weak-password":
+      return "Choose a password with at least 6 characters.";
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      return "That email and password combination didn’t work.";
+    case "auth/email-already-in-use":
+      return "An account already uses this email. Try signing in instead.";
+    case "auth/operation-not-allowed":
+      return "Email/password sign-in isn’t enabled in Firebase Authentication yet.";
+    case "auth/network-request-failed":
+      return "Firebase needs an internet connection to sign in.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Wait a little and try again.";
+    default:
+      return "Firebase couldn’t complete that request. Check the setup and try again.";
+  }
+}
+
+function showAuthError(message) {
+  els.authError.textContent = message;
+  els.authError.hidden = false;
+  els.authStatusMessage.hidden = true;
+  els.authError.focus();
+}
+
+function setAuthStatus(message, isError) {
+  els.authStatusMessage.textContent = message;
+  els.authStatusMessage.classList.toggle("is-error", isError);
+  els.authStatusMessage.hidden = false;
+}
+
+function reportCloudError(error) {
+  console.error("Firebase cloud sync failed.", error);
+  setAuthStatus(
+    "Cloud sync couldn’t finish. Check your connection, Firebase setup, and security rules.",
+    true,
+  );
 }
 
 function renderDay() {
@@ -317,6 +787,9 @@ function openCapture() {
   els.formError.hidden = true;
   els.uploadPreview.hidden = true;
   els.uploadLabel.textContent = "Add a photo";
+  document.querySelector("#uploadHint").textContent = currentUser
+    ? "Private to your account. Saved securely."
+    : "Kept in this browser until you sign in.";
   releasePhotoPreview();
   els.captureDialog.showModal();
   window.requestAnimationFrame(() => els.memoryCaption.focus());
@@ -378,18 +851,49 @@ async function saveMemory(event) {
       caption,
       photo,
       createdAt: new Date().toISOString(),
+      photoPath: "",
+      pendingSync: Boolean(currentUser),
     };
+    let cloudSaved = false;
+    if (currentUser && navigator.onLine) {
+      try {
+        Object.assign(newMemory, await uploadCloudMemory(currentUser, newMemory));
+        cloudSaved = true;
+      } catch (error) {
+        console.error("Could not save this moment to Firebase yet.", error);
+        newMemory.pendingSync = true;
+      }
+    }
     const nextMemories = [newMemory, ...memories].sort((a, b) =>
       b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt),
     );
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextMemories));
+    try {
+      localStorage.setItem(activeStorageKey, JSON.stringify(nextMemories.map((moment) => ({
+        ...moment,
+        photo: moment.photo.startsWith("data:image/jpeg;base64,") ? moment.photo : "",
+      }))));
+    } catch (error) {
+      if (!cloudSaved) throw error;
+      console.error("The cloud moment was saved, but its local copy could not be cached.", error);
+      setAuthStatus("Saved to your account, but this browser couldn’t keep an offline copy.", true);
+    }
     memories = nextMemories;
     selectedDate = date;
     const savedMonth = fromDateKey(date);
     visibleMonth = new Date(savedMonth.getFullYear(), savedMonth.getMonth(), 1);
     closeCapture();
     render();
-    announce("Your moment is saved on this browser.");
+    if (currentUser && !cloudSaved) {
+      setAuthStatus(
+        navigator.onLine
+          ? "Saved on this device. It will sync when Firebase is available."
+          : "Saved on this device. It will sync when you’re back online.",
+        false,
+      );
+      announce("Saved on this device. Cloud sync is pending.");
+    } else {
+      announce(cloudSaved ? "Your moment is saved to your account." : "Your moment is saved on this browser.");
+    }
   } catch (error) {
     console.error("Could not save this moment.", error);
     showFormError(
@@ -468,25 +972,37 @@ function moveMonth(amount) {
   renderSummary();
 }
 
-function readMemories() {
+function readMemories(storageKey = STORAGE_KEY) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || "[]");
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item) =>
-        item &&
-        typeof item.id === "string" &&
-        typeof item.caption === "string" &&
-        typeof item.date === "string" &&
-        /^\d{4}-\d{2}-\d{2}$/.test(item.date) &&
-        toDateKey(fromDateKey(item.date)) === item.date &&
-        typeof item.photo === "string" &&
-        (item.photo === "" || /^data:image\/jpeg;base64,[a-z\d+/]+=*$/i.test(item.photo)),
-    );
+    return parsed.filter(isValidMemory);
   } catch (error) {
     console.error("Could not read saved moments.", error);
     return [];
   }
+}
+
+function isValidMemory(item) {
+  return Boolean(
+    item &&
+    typeof item.id === "string" &&
+    /^[A-Za-z0-9_-]+$/.test(item.id) &&
+    typeof item.caption === "string" &&
+    item.caption.length > 0 &&
+    item.caption.length <= 160 &&
+    typeof item.date === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(item.date) &&
+    toDateKey(fromDateKey(item.date)) === item.date &&
+    typeof item.photo === "string" &&
+    (item.photo === "" ||
+      /^data:image\/jpeg;base64,[a-z\d+/]+=*$/i.test(item.photo) ||
+      item.photo.startsWith("blob:")) &&
+    (item.photoPath === undefined ||
+      item.photoPath === "" ||
+      typeof item.photoPath === "string") &&
+    (item.pendingSync === undefined || typeof item.pendingSync === "boolean")
+  );
 }
 
 function initializeTheme() {

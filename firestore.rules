@@ -1,0 +1,43 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/moments/{momentId} {
+      function ownsMoment() {
+        return request.auth != null && request.auth.uid == userId;
+      }
+
+      function hasValidMoment() {
+        return request.resource.data.keys().hasOnly([
+            'date',
+            'caption',
+            'photoPath',
+            'createdAt',
+            'updatedAt'
+          ])
+          && request.resource.data.keys().hasAll([
+            'date',
+            'caption',
+            'photoPath',
+            'createdAt',
+            'updatedAt'
+          ])
+          && request.resource.data.date is string
+          && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && request.resource.data.caption is string
+          && request.resource.data.caption.size() > 0
+          && request.resource.data.caption.size() <= 160
+          && request.resource.data.photoPath is string
+          && (
+            request.resource.data.photoPath == ''
+            || request.resource.data.photoPath == 'users/' + userId + '/moments/' + momentId + '.jpg'
+          )
+          && request.resource.data.createdAt is timestamp
+          && request.resource.data.updatedAt is timestamp;
+      }
+
+      allow read, delete: if ownsMoment();
+      allow create, update: if ownsMoment() && hasValidMoment();
+    }
+  }
+}

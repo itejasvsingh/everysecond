@@ -47,6 +47,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -299,6 +303,40 @@ button:disabled {
   background: var(--surface);
   color: var(--ink-soft);
   cursor: pointer;
+}
+
+.auth-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.auth-button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.auth-button svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.65;
 }
 
 .page-heading {
@@ -1056,6 +1094,79 @@ p {
   letter-spacing: -0.5px;
 }
 
+.auth-intro {
+  margin: -10px 0 16px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.auth-dialog .dialog-form {
+  max-width: 485px;
+}
+
+.account-actions {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.account-actions .text-button {
+  min-height: 36px;
+  font-size: 11px;
+}
+
+.signed-in-actions {
+  justify-content: space-between;
+  margin-top: 15px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.signed-in-email {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.auth-status {
+  margin: 12px 0 0;
+  color: var(--green);
+  font-size: 12px;
+}
+
+.auth-status.is-error {
+  color: #b13d2d;
+}
+
+[data-theme="dark"] .auth-status.is-error {
+  color: #ff9a86;
+}
+
+.import-notice {
+  margin-top: 14px;
+  padding: 13px;
+  border-radius: 12px;
+  background: var(--surface-warm);
+}
+
+.import-notice p {
+  margin: 0 0 10px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.auth-footnote {
+  margin: 15px 0 0;
+  color: var(--ink-faint);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .close-dialog {
   width: 36px;
   height: 36px;
@@ -1313,6 +1424,24 @@ p {
   .topbar-date {
     margin-left: auto;
     font-size: 11px;
+  }
+
+  .auth-button {
+    width: 38px;
+    min-width: 38px;
+    min-height: 38px;
+    padding: 8px;
+    border-radius: 50%;
+  }
+
+  .auth-button span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
   }
 
   .avatar-button {

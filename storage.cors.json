@@ -1,0 +1,22 @@
+[
+  {
+    "origin": [
+      "https://itejasvsingh.github.io",
+      "https://daymark-a1257.web.app",
+      "https://daymark-a1257.firebaseapp.com",
+      "http://localhost:4173",
+      "http://127.0.0.1:4173"
+    ],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD"],
+    "responseHeader": [
+      "Authorization",
+      "Content-Type",
+      "X-Firebase-Storage-Version",
+      "X-Firebase-GMPID",
+      "X-Goog-Upload-Protocol",
+      "X-Goog-Upload-Command",
+      "X-Goog-Upload-Offset"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

@@ -4,13 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#f7f5ef" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta
       name="description"
       content="A quiet little home for the moments you want to keep."
     />
     <title>daymark — keep a little of today</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='13' fill='%23df7658'/%3E%3Cpath d='M13 21a7 7 0 1 0 14 0 7 7 0 0 0-14 0Zm7-11v3m0 16v3m-10-11h3m14 0h3m-17-7 2 2m10 10 2 2m0-14-2 2m-10 10-2 2' fill='none' stroke='white' stroke-linecap='round' stroke-width='2'/%3E%3C/svg%3E" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./assets/icon-192.png" />
     <link rel="stylesheet" href="./styles.css" />
+    <script defer src="./firebase-config.js"></script>
     <script src="./app.js" defer></script>
   </head>
   <body>
@@ -70,6 +76,10 @@
             <span>daymark</span>
           </a>
           <p class="topbar-date" id="topbarDate"></p>
+          <button class="auth-button" id="authButton" type="button" aria-label="Sign in to sync your moments">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.5 2.8-6 7-6s7 2.5 7 6" /></svg>
+            <span id="authButtonLabel">Sign in</span>
+          </button>
           <button class="avatar-button" id="topThemeToggle" type="button" aria-label="Switch to dark mode">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20.2 15.4A8.3 8.3 0 0 1 8.6 3.8 8.4 8.4 0 1 0 20.2 15.4Z" /></svg>
           </button>
@@ -245,7 +255,7 @@
             <span id="uploadLabel">Add a photo</span>
             <input class="visually-hidden" id="memoryPhoto" name="photo" type="file" accept="image/*" />
           </label>
-          <p class="upload-hint">Just for you. Kept in this browser.</p>
+          <p class="upload-hint" id="uploadHint">Kept in this browser until you sign in.</p>
         </div>
         <img class="upload-preview" id="uploadPreview" alt="Preview of the selected photo" hidden />
         <p class="form-error" id="formError" role="alert" tabindex="-1" hidden></p>
@@ -256,6 +266,48 @@
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
           </button>
         </div>
+      </form>
+    </dialog>
+
+    <dialog class="capture-dialog auth-dialog" id="authDialog" aria-labelledby="authTitle">
+      <form class="dialog-form" id="authForm">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">YOUR MOMENTS, WHEREVER YOU ARE</p>
+            <h2 id="authTitle">Sign in to sync</h2>
+          </div>
+          <button class="round-icon-button close-dialog" type="button" id="closeAuth" aria-label="Close">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          </button>
+        </div>
+        <p class="auth-intro" id="authIntro">Create an account or sign in to keep your moments private and synced.</p>
+        <div id="authFields">
+          <label class="field-label" for="authEmail">Email address</label>
+          <input class="text-input" id="authEmail" name="email" type="email" autocomplete="email" maxlength="254" required />
+          <label class="field-label" for="authPassword">Password</label>
+          <input class="text-input" id="authPassword" name="password" type="password" autocomplete="current-password" minlength="6" required />
+        </div>
+        <p class="form-error" id="authError" role="alert" tabindex="-1" hidden></p>
+        <p class="auth-status" id="authStatusMessage" role="status" hidden></p>
+        <div class="account-actions" id="accountActions">
+          <button class="text-button" id="resetPassword" type="button">Forgot password?</button>
+          <button class="text-button" id="toggleAuthMode" type="button">Create an account</button>
+        </div>
+        <div class="account-actions signed-in-actions" id="signedInActions" hidden>
+          <span class="signed-in-email" id="signedInEmail"></span>
+          <button class="button button-quiet" id="signOutButton" type="button">Sign out</button>
+        </div>
+        <div class="import-notice" id="importNotice" hidden>
+          <p id="importDescription"></p>
+          <button class="button button-quiet" id="importLocalButton" type="button">Import these moments</button>
+        </div>
+        <div class="dialog-actions" id="authSubmitActions">
+          <button class="button button-quiet" id="cancelAuth" type="button">Maybe later</button>
+          <button class="button button-primary" id="authSubmit" type="submit">
+            <span>Sign in</span>
+          </button>
+        </div>
+        <p class="auth-footnote">Your moments are private to your account. Photos are downloaded with your sign-in; sharing a photo link is not required.</p>
       </form>
     </dialog>
 
